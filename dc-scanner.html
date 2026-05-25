@@ -544,12 +544,12 @@ function updateBadge() {
 function renderHomeState() {
   const el = document.getElementById('home-state');
   if (!dataLoaded) {
-    el.innerHTML = '<div class="no-data-state"><div class="no-data-icon">📋</div><div class="no-data-title">No data loaded yet</div><div class="no-data-msg">An admin needs to upload today's Excel file before scanning can begin.</div></div>';
+    el.innerHTML = '<div class="no-data-state"><div class="no-data-icon">&#x1F4CB;</div><div class="no-data-title">No data loaded yet</div><div class="no-data-msg">An admin needs to upload the Excel file before scanning can begin.</div></div>';
     return;
   }
   const counts = {};
   ILPN_DATA.forEach(r => { counts[r.inductionAction] = (counts[r.inductionAction]||0)+1; });
-  let h = '<div class="section-title">Today's Induction Breakdown</div>';
+  let h = '<div class="section-title">Induction Breakdown</div>';
   Object.entries(ACTIONS).forEach(([action, cfg]) => {
     const c = counts[action]||0;
     const pct = Math.round(c/ILPN_DATA.length*100);
@@ -762,7 +762,7 @@ function doLookup(raw) {
   const resultDiv = document.getElementById('result');
   document.getElementById('home-state').style.display = 'none';
   if (!records) {
-    resultDiv.innerHTML = '<div class="not-found"><div class="not-found-icon">🔍</div><div class="not-found-title">iLPN Not Found</div><div class="not-found-msg"><span class="not-found-id">'+raw+'</span> is not in today's induction list.</div></div><button class="scan-again" onclick="scanAgain()">↩ Scan Another</button>';
+    resultDiv.innerHTML = '<div class="not-found"><div class="not-found-icon">&#x1F50D;</div><div class="not-found-title">iLPN Not Found</div><div class="not-found-msg"><span class="not-found-id">'+raw+'</span> is not in the induction list.</div></div><button class="scan-again" onclick="scanAgain()">Scan Another</button>';
     return;
   }
   let h = '<div class="result-wrap">';
