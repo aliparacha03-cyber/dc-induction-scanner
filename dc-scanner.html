@@ -519,11 +519,14 @@ let lastFileName = null;
 
 // Load data.json from same server on page load
 async function loadDataFromServer() {
+  // Show "no data" immediately — don't leave user stuck on Loading...
+  updateBadge();
+  renderHomeState();
   try {
-    const res = await fetch('data.json?t=' + Date.now());
-    if (!res.ok) throw new Error('No data file');
+    const res = await fetch('./data.json?t=' + Date.now(), {cache: 'no-store'});
+    if (!res.ok) throw new Error('data.json returned ' + res.status);
     const data = await res.json();
-    if (data && data.length > 0) {
+    if (Array.isArray(data) && data.length > 0) {
       ILPN_DATA = data;
       buildLookup(ILPN_DATA);
       dataLoaded = true;
@@ -531,9 +534,8 @@ async function loadDataFromServer() {
       renderHomeState();
     }
   } catch(e) {
-    // No data.json yet — admin needs to upload
-    updateBadge();
-    renderHomeState();
+    console.warn('data.json load failed:', e.message);
+    // Already showing no-data state — nothing more needed
   }
 }
 
@@ -939,7 +941,7 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 3000);
 }
 
-// Init
+// Init — show no-data state immediately, then try loading
 updateBadge();
 renderHomeState();
 </script>
