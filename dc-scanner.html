@@ -281,6 +281,27 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
 .status-val{font-size:13px;font-weight:700;color:var(--text)}
 .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
 
+
+/* github config */
+.gh-config-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;box-shadow:var(--shadow-xs);margin-bottom:10px}
+.gh-config-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.gh-config-sub{font-size:12px;color:var(--text-2);margin-bottom:14px;line-height:1.5}
+.gh-input-wrap{position:relative}
+.gh-input{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px;padding:11px 40px 11px 14px;outline:none;font-weight:500;transition:border-color .15s}
+.gh-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1);background:var(--white)}
+.gh-input::placeholder{color:var(--text-3);font-weight:400}
+.gh-eye{position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;color:var(--text-3);background:none;border:none;padding:2px;display:flex;align-items:center}
+.gh-eye svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.gh-save-btn{margin-top:10px;width:100%;padding:11px;background:var(--text);border:none;border-radius:10px;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:background .1s}
+.gh-save-btn:active{background:#334155}
+.gh-status{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;font-weight:600;padding:9px 12px;border-radius:8px}
+.gh-status.ok{background:#F0FDF4;color:#166534;border:1px solid #BBF7D0}
+.gh-status.err{background:#FEF2F2;color:#991B1B;border:1px solid #FECACA}
+.gh-status.syncing{background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE}
+.gh-status svg{width:14px;height:14px;flex-shrink:0}
+.sync-spinner{width:14px;height:14px;border:2px solid #BFDBFE;border-top-color:#2563EB;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+
 /* toast */
 #toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(100px);background:var(--text);color:#fff;padding:10px 20px;border-radius:100px;font-size:13px;font-weight:600;transition:transform .25s ease;z-index:999;white-space:nowrap;box-shadow:var(--shadow-lg);pointer-events:none}
 #toast.show{transform:translateX(-50%) translateY(0)}
@@ -437,6 +458,27 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
       </button>
     </div>
 
+    <!-- GITHUB CONFIG -->
+    <div class="admin-section">
+      <div class="admin-section-title">⚙️ GitHub Sync</div>
+      <div class="gh-config-card">
+        <div class="gh-config-title">🔑 GitHub Access Token</div>
+        <div class="gh-config-sub">Required so uploaded data syncs to all devices automatically. Paste your token once — it's saved on this device.</div>
+        <div class="gh-input-wrap">
+          <input class="gh-input" id="ghToken" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false">
+          <button class="gh-eye" onclick="toggleTokenVis()" title="Show/hide">
+            <svg id="eyeIcon" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <div class="gh-config-sub" style="margin-top:10px;margin-bottom:0;font-size:11px;color:var(--text-3)">
+          Also set your repo details below:
+        </div>
+        <input class="gh-input" id="ghRepo" type="text" placeholder="username/dc-induction-scanner" style="margin-top:8px" autocomplete="off" spellcheck="false">
+        <button class="gh-save-btn" onclick="saveGHConfig()">Save Configuration</button>
+        <div class="gh-status" id="ghStatus" style="display:none"></div>
+      </div>
+    </div>
+
     <!-- STATUS -->
     <div class="admin-section">
       <div class="admin-section-title">Current Status</div>
@@ -574,13 +616,116 @@ document.getElementById('passwordInput').addEventListener('keydown', e => { if(e
 
 function logout() { goToScanner(); }
 
+// ─── GITHUB CONFIG ───────────────────────────────────────────────────────
+let ghToken = localStorage.getItem('gh_token') || '';
+let ghRepo  = localStorage.getItem('gh_repo')  || '';
+
+window.addEventListener('DOMContentLoaded', () => {
+  if (ghToken) document.getElementById('ghToken').value = ghToken;
+  if (ghRepo)  document.getElementById('ghRepo').value  = ghRepo;
+  if (ghToken && ghRepo) {
+    showGHStatus('ok', '✓ Configuration saved');
+  }
+});
+
+function saveGHConfig() {
+  const t = document.getElementById('ghToken').value.trim();
+  const r = document.getElementById('ghRepo').value.trim();
+  if (!t || !r) { showGHStatus('err', 'Both token and repo are required'); return; }
+  if (!t.startsWith('ghp_') && !t.startsWith('github_pat_')) {
+    showGHStatus('err', 'Token should start with ghp_ or github_pat_'); return;
+  }
+  if (!r.includes('/')) { showGHStatus('err', 'Repo must be username/repo-name'); return; }
+  ghToken = t; ghRepo = r;
+  localStorage.setItem('gh_token', t);
+  localStorage.setItem('gh_repo',  r);
+  showGHStatus('ok', '✓ Saved — ready to sync');
+}
+
+function showGHStatus(type, msg) {
+  const el = document.getElementById('ghStatus');
+  el.style.display = 'flex';
+  el.className = 'gh-status ' + type;
+  if (type === 'syncing') {
+    el.innerHTML = '<div class="sync-spinner"></div>' + msg;
+  } else {
+    const icon = type === 'ok'
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+    el.innerHTML = icon + msg;
+  }
+}
+
+function toggleTokenVis() {
+  const inp = document.getElementById('ghToken');
+  const ico = document.getElementById('eyeIcon');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    ico.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>';
+  } else {
+    inp.type = 'password';
+    ico.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+  }
+}
+
+async function pushToGitHub(records) {
+  if (!ghToken || !ghRepo) {
+    showToast('⚠️ Set GitHub token in admin to sync all devices');
+    return false;
+  }
+  showGHStatus('syncing', 'Syncing to GitHub…');
+
+  try {
+    // 1. Get current file SHA (required for update)
+    const getRes = await fetch(`https://api.github.com/repos/${ghRepo}/contents/dc-scanner.html`, {
+      headers: { Authorization: `token ${ghToken}`, Accept: 'application/vnd.github.v3+json' }
+    });
+    if (!getRes.ok) throw new Error('Could not fetch file from GitHub. Check repo name.');
+    const fileInfo = await getRes.json();
+    const sha = fileInfo.sha;
+
+    // 2. Get current HTML content
+    const currentHTML = atob(fileInfo.content.replace(/\n/g,''));
+
+    // 3. Replace the data block inside the HTML
+    const newDataLine = 'let ILPN_DATA = ' + JSON.stringify(records) + ';';
+    const updated = currentHTML.replace(/let ILPN_DATA = \[[\s\S]*?\];/, newDataLine);
+
+    if (updated === currentHTML) throw new Error('Could not find data block in file to replace.');
+
+    // 4. Push updated file back to GitHub
+    const pushRes = await fetch(`https://api.github.com/repos/${ghRepo}/contents/dc-scanner.html`, {
+      method: 'PUT',
+      headers: { Authorization: `token ${ghToken}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: 'Update iLPN data — ' + new Date().toLocaleDateString('en-CA'),
+        content: btoa(unescape(encodeURIComponent(updated))),
+        sha
+      })
+    });
+
+    if (!pushRes.ok) {
+      const err = await pushRes.json();
+      throw new Error(err.message || 'Push failed');
+    }
+
+    showGHStatus('ok', '✓ Synced — all devices will update in ~30 sec');
+    return true;
+
+  } catch(e) {
+    showGHStatus('err', '✗ ' + e.message);
+    showToast('Sync failed — data loaded locally only');
+    return false;
+  }
+}
+
 // ─── FILE UPLOAD ──────────────────────────────────────
 function handleFileUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = function(e) {
+  reader.onload = async function(e) {
     try {
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
@@ -614,6 +759,7 @@ function handleFileUpload(event) {
 
       if (records.length === 0) { showToast('No iLPN records found in file'); return; }
 
+      // Update local data immediately
       ILPN_DATA = records;
       buildLookup(ILPN_DATA);
       dataLoaded = true;
@@ -626,7 +772,11 @@ function handleFileUpload(event) {
       document.getElementById('statPriority').textContent = priority;
       document.getElementById('uploadSuccess').classList.add('show');
       updateAdminStatus();
-      showToast('✅ ' + records.length + ' iLPNs loaded');
+      updateBadge();
+      showToast('✅ ' + records.length + ' iLPNs loaded — syncing…');
+
+      // Push to GitHub so all devices get it
+      await pushToGitHub(records);
 
     } catch(err) {
       showToast('Error reading file — check format');
@@ -636,16 +786,6 @@ function handleFileUpload(event) {
   reader.readAsArrayBuffer(file);
 }
 
-function updateAdminStatus() {
-  document.getElementById('statusCount').textContent = dataLoaded ? ILPN_DATA.length + ' iLPNs' : '—';
-  document.getElementById('statusTime').textContent = lastUploadTime ? lastUploadTime.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—';
-  document.getElementById('statusFile').textContent = lastFileName || '—';
-  const dot = document.getElementById('statusData');
-  dot.innerHTML = dataLoaded
-    ? '<span class="status-dot" style="background:#22C55E"></span>Loaded & ready'
-    : '<span class="status-dot" style="background:#94A3B8"></span>No file loaded';
-}
-
 // Drag and drop
 const zone = document.getElementById('uploadZone');
 zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
@@ -653,7 +793,7 @@ zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
 zone.addEventListener('drop', e => {
   e.preventDefault(); zone.classList.remove('drag');
   const f = e.dataTransfer.files[0];
-  if (f) { document.getElementById('fileInput').files = e.dataTransfer.files; handleFileUpload({target:{files:[f]}}); }
+  if (f) handleFileUpload({target:{files:[f]}});
 });
 
 // ─── SCANNER ──────────────────────────────────────────
