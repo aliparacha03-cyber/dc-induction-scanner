@@ -7,7 +7,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Induction Scanner — W-ON1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.19.1/zxing.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 
@@ -711,8 +710,10 @@ async function toggleScanner() {
   scanning ? stopScanner() : startScanner();
 }
 
+let stream = null;
+let scanInterval = null;
+
 async function startScanner() {
-  if (!window.ZXing) { showToast('Camera unavailable — use manual input'); return; }
   scanning = true;
   document.getElementById('scanBtn').classList.add('scanning');
   document.getElementById('scanLabel').textContent = 'Scanning… tap to stop';
@@ -721,27 +722,70 @@ async function startScanner() {
   document.getElementById('scanner-wrap').classList.add('active');
   document.getElementById('result').innerHTML = '';
   document.getElementById('home-state').style.display = 'none';
+
   try {
-    const hints = new Map();
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.QR_CODE,ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.DATA_MATRIX,ZXing.BarcodeFormat.ITF,ZXing.BarcodeFormat.CODABAR]);
-    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-    codeReader = new ZXing.BrowserMultiFormatReader(hints);
-    const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
-    let devId = devices[0]?.deviceId;
-    const rear = devices.find(d => /back|rear|environment/i.test(d.label));
-    if (rear) devId = rear.deviceId;
-    await codeReader.decodeFromVideoDevice(devId, 'video', (res) => {
-      if (res) { stopScanner(); handleScan(res.getText()); }
+    // Request rear camera
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
     });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    await video.play();
+
+    // Use native BarcodeDetector if available (Chrome Android, Safari iOS 17+)
+    if ('BarcodeDetector' in window) {
+      const detector = new BarcodeDetector({
+        formats: ['code_128','code_39','ean_13','ean_8','qr_code','data_matrix','itf','codabar']
+      });
+      scanInterval = setInterval(async () => {
+        if (!scanning) return;
+        try {
+          const barcodes = await detector.detect(video);
+          if (barcodes.length > 0) {
+            const raw = barcodes[0].rawValue;
+            stopScanner();
+            handleScan(raw);
+          }
+        } catch(e) {}
+      }, 300);
+    } else {
+      // Fallback: load ZXing dynamically
+      if (!window.ZXing) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.19.1/zxing.min.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.QR_CODE,ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.DATA_MATRIX,ZXing.BarcodeFormat.ITF,ZXing.BarcodeFormat.CODABAR]);
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      codeReader = new ZXing.BrowserMultiFormatReader(hints);
+      const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+      let devId = devices[0]?.deviceId;
+      const rear = devices.find(d => /back|rear|environment/i.test(d.label));
+      if (rear) devId = rear.deviceId;
+      // Stop our stream first, let ZXing manage it
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      await codeReader.decodeFromVideoDevice(devId, 'video', (res) => {
+        if (res) { stopScanner(); handleScan(res.getText()); }
+      });
+    }
   } catch(e) {
     stopScanner();
-    showToast(e.name==='NotAllowedError' ? 'Camera denied — use manual input' : 'Camera error — use manual input');
+    showToast(e.name === 'NotAllowedError' ? 'Camera denied — use manual input' : 'Camera error — use manual input');
   }
 }
 
 function stopScanner() {
   scanning = false;
+  if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
   if (codeReader) { codeReader.reset(); codeReader = null; }
+  const video = document.getElementById('video');
+  video.srcObject = null;
   document.getElementById('scanBtn').classList.remove('scanning');
   document.getElementById('scanLabel').textContent = 'Scan iLPN Barcode';
   document.getElementById('scanSub').textContent = 'Point camera at tote label';
