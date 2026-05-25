@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <title>Induction Scanner — W-ON1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.19.1/zxing.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
+
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
   --bg:#F4F6F9;
@@ -305,9 +305,11 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
 /* toast */
 #toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(100px);background:var(--text);color:#fff;padding:10px 20px;border-radius:100px;font-size:13px;font-weight:600;transition:transform .25s ease;z-index:999;white-space:nowrap;box-shadow:var(--shadow-lg);pointer-events:none}
 #toast.show{transform:translateX(-50%) translateY(0)}
+
 </style>
 </head>
 <body>
+
 
 <!-- ══════════ SCREEN: WORKER SCANNER ══════════ -->
 <div id="screen-scanner" class="screen active">
@@ -507,59 +509,20 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
 
 <div id="toast"></div>
 
+
 <script>
-// ─── CONFIG ───────────────────────────────────────────
 const ADMIN_PASSWORD = 'DC2024admin';
 
-// ─── DATA ─────────────────────────────────────────────
 let ILPN_DATA = [];
 let dataLoaded = false;
 let lastUploadTime = null;
 let lastFileName = null;
 
-// Load data.json from same server on page load
-async function loadDataFromServer() {
-  // Show "no data" immediately — don't leave user stuck on Loading...
-  updateBadge();
-  renderHomeState();
-  try {
-    const res = await fetch('./data.json?t=' + Date.now(), {cache: 'no-store'});
-    if (!res.ok) throw new Error('data.json returned ' + res.status);
-    const data = await res.json();
-    if (Array.isArray(data) && data.length > 0) {
-      ILPN_DATA = data;
-      buildLookup(ILPN_DATA);
-      dataLoaded = true;
-      updateBadge();
-      renderHomeState();
-    }
-  } catch(e) {
-    console.warn('data.json load failed:', e.message);
-    // Already showing no-data state — nothing more needed
-  }
-}
-
 const ACTIONS = {
-  "1. Top Priority - Required for Orders": {
-    color:"#DC2626",bg:"linear-gradient(135deg,#DC2626,#B91C1C)",
-    lightBg:"#FEF2F2",border:"#FECACA",label:"Top Priority",icon:"🚨",
-    pill:"#FEE2E2",pillText:"#991B1B"
-  },
-  "2. Induction from Drop Zone": {
-    color:"#D97706",bg:"linear-gradient(135deg,#F59E0B,#D97706)",
-    lightBg:"#FFFBEB",border:"#FDE68A",label:"Drop Zone",icon:"📦",
-    pill:"#FEF3C7",pillText:"#92400E"
-  },
-  "3. Induction from Receiving": {
-    color:"#2563EB",bg:"linear-gradient(135deg,#3B82F6,#2563EB)",
-    lightBg:"#EFF6FF",border:"#BFDBFE",label:"Receiving",icon:"🏷️",
-    pill:"#DBEAFE",pillText:"#1E40AF"
-  },
-  "4. Induction from OS": {
-    color:"#7C3AED",bg:"linear-gradient(135deg,#8B5CF6,#7C3AED)",
-    lightBg:"#F5F3FF",border:"#DDD6FE",label:"From OS",icon:"🔄",
-    pill:"#EDE9FE",pillText:"#5B21B6"
-  },
+  "1. Top Priority - Required for Orders": { color:"#DC2626", bg:"linear-gradient(135deg,#DC2626,#B91C1C)", label:"Top Priority", icon:"🚨", pill:"#FEE2E2", pillText:"#991B1B" },
+  "2. Induction from Drop Zone":           { color:"#D97706", bg:"linear-gradient(135deg,#F59E0B,#D97706)", label:"Drop Zone",    icon:"📦", pill:"#FEF3C7", pillText:"#92400E" },
+  "3. Induction from Receiving":           { color:"#2563EB", bg:"linear-gradient(135deg,#3B82F6,#2563EB)", label:"Receiving",    icon:"🏷️", pill:"#DBEAFE", pillText:"#1E40AF" },
+  "4. Induction from OS":                  { color:"#7C3AED", bg:"linear-gradient(135deg,#8B5CF6,#7C3AED)", label:"From OS",      icon:"🔄", pill:"#EDE9FE", pillText:"#5B21B6" },
 };
 
 let LOOKUP = {};
@@ -573,25 +536,15 @@ function buildLookup(data) {
 }
 
 function updateBadge() {
-  const badge = document.getElementById('data-badge');
-  if (!dataLoaded) {
-    badge.textContent = 'No data loaded';
-    badge.className = 'data-badge stale';
-  } else {
-    badge.textContent = ILPN_DATA.length + ' iLPNs';
-    badge.className = 'data-badge';
-  }
+  const b = document.getElementById('data-badge');
+  if (!dataLoaded) { b.textContent = 'No data loaded'; b.className = 'data-badge stale'; }
+  else { b.textContent = ILPN_DATA.length + ' iLPNs'; b.className = 'data-badge'; }
 }
 
 function renderHomeState() {
   const el = document.getElementById('home-state');
   if (!dataLoaded) {
-    el.innerHTML = `
-      <div class="no-data-state">
-        <div class="no-data-icon">📋</div>
-        <div class="no-data-title">No data loaded yet</div>
-        <div class="no-data-msg">An admin needs to upload today's Excel file before scanning can begin.</div>
-      </div>`;
+    el.innerHTML = '<div class="no-data-state"><div class="no-data-icon">📋</div><div class="no-data-title">No data loaded yet</div><div class="no-data-msg">An admin needs to upload today's Excel file before scanning can begin.</div></div>';
     return;
   }
   const counts = {};
@@ -600,25 +553,35 @@ function renderHomeState() {
   Object.entries(ACTIONS).forEach(([action, cfg]) => {
     const c = counts[action]||0;
     const pct = Math.round(c/ILPN_DATA.length*100);
-    h += `<div class="stat-card">
-      <div class="stat-top">
-        <div class="stat-name">${cfg.icon}&nbsp;${action}</div>
-        <span class="stat-pill" style="background:${cfg.pill};color:${cfg.pillText}">${c}</span>
-      </div>
-      <div class="stat-track"><div class="stat-fill" style="width:${pct}%;background:${cfg.color}"></div></div>
-    </div>`;
+    h += `<div class="stat-card"><div class="stat-top"><div class="stat-name">${cfg.icon}&nbsp;${action}</div><span class="stat-pill" style="background:${cfg.pill};color:${cfg.pillText}">${c}</span></div><div class="stat-track"><div class="stat-fill" style="width:${pct}%;background:${cfg.color}"></div></div></div>`;
   });
   el.innerHTML = h;
 }
 
-// ─── SCREENS ──────────────────────────────────────────
+async function loadDataFromServer() {
+  try {
+    const res = await fetch('./data.json?v=' + Date.now(), {cache:'no-store'});
+    if (!res.ok) return;
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) {
+      ILPN_DATA = data; buildLookup(ILPN_DATA); dataLoaded = true;
+      updateBadge(); renderHomeState();
+    }
+  } catch(e) { console.warn('data.json:', e.message); }
+}
+
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
 function goToScanner() { showScreen('screen-scanner'); renderHomeState(); updateBadge(); }
-function goToLogin()   { showScreen('screen-login'); document.getElementById('passwordInput').value=''; document.getElementById('loginError').classList.remove('show'); }
+function goToLogin()   {
+  showScreen('screen-login');
+  document.getElementById('passwordInput').value = '';
+  document.getElementById('loginError').classList.remove('show');
+}
 function goToAdmin()   { showScreen('screen-admin'); updateAdminStatus(); }
+function logout()      { goToScanner(); }
 
 function submitLogin() {
   const pw = document.getElementById('passwordInput').value;
@@ -630,164 +593,99 @@ function submitLogin() {
   }
 }
 document.getElementById('passwordInput').addEventListener('keydown', e => { if(e.key==='Enter') submitLogin(); });
-function logout() { goToScanner(); }
 
-// ─── GITHUB CONFIG ────────────────────────────────────
 let ghToken = localStorage.getItem('gh_token') || '';
 let ghRepo  = localStorage.getItem('gh_repo')  || '';
 
-window.addEventListener('DOMContentLoaded', () => {
+function initAdminFields() {
   if (ghToken) document.getElementById('ghToken').value = ghToken;
   if (ghRepo)  document.getElementById('ghRepo').value  = ghRepo;
   if (ghToken && ghRepo) showGHStatus('ok', '✓ Configuration saved');
-});
+}
 
 function saveGHConfig() {
   const t = document.getElementById('ghToken').value.trim();
   const r = document.getElementById('ghRepo').value.trim();
-  if (!t || !r) { showGHStatus('err', 'Both token and repo are required'); return; }
-  if (!t.startsWith('ghp_') && !t.startsWith('github_pat_')) { showGHStatus('err', 'Token should start with ghp_ or github_pat_'); return; }
+  if (!t || !r) { showGHStatus('err', 'Both fields required'); return; }
+  if (!t.startsWith('ghp_') && !t.startsWith('github_pat_')) { showGHStatus('err', 'Token must start with ghp_'); return; }
   if (!r.includes('/')) { showGHStatus('err', 'Repo must be username/repo-name'); return; }
   ghToken = t; ghRepo = r;
-  localStorage.setItem('gh_token', t);
-  localStorage.setItem('gh_repo',  r);
+  localStorage.setItem('gh_token', t); localStorage.setItem('gh_repo', r);
   showGHStatus('ok', '✓ Saved — ready to sync');
 }
 
 function showGHStatus(type, msg) {
   const el = document.getElementById('ghStatus');
-  el.style.display = 'flex';
-  el.className = 'gh-status ' + type;
-  if (type === 'syncing') {
-    el.innerHTML = '<div class="sync-spinner"></div>' + msg;
-  } else {
-    const icon = type === 'ok'
-      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
-      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
-    el.innerHTML = icon + msg;
-  }
+  el.style.display = 'flex'; el.className = 'gh-status ' + type;
+  if (type === 'syncing') { el.innerHTML = '<div class="sync-spinner"></div>' + msg; return; }
+  const icon = type === 'ok'
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>';
+  el.innerHTML = icon + msg;
 }
 
 function toggleTokenVis() {
   const inp = document.getElementById('ghToken');
-  const ico = document.getElementById('eyeIcon');
-  if (inp.type === 'password') {
-    inp.type = 'text';
-    ico.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>';
-  } else {
-    inp.type = 'password';
-    ico.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
-  }
+  inp.type = inp.type === 'password' ? 'text' : 'password';
 }
 
-// ─── PUSH data.json TO GITHUB ─────────────────────────
 async function pushDataToGitHub(records) {
-  if (!ghToken || !ghRepo) {
-    showToast('⚠️ Set GitHub token in admin to sync all devices');
-    return false;
-  }
+  if (!ghToken || !ghRepo) { showToast('Set GitHub token in admin settings'); return; }
   showGHStatus('syncing', 'Syncing to GitHub…');
-
   try {
-    const jsonContent = JSON.stringify(records);
-    const encoded = btoa(unescape(encodeURIComponent(jsonContent)));
-
-    // Check if data.json already exists (need SHA to update)
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(records))));
     let sha = null;
-    const checkRes = await fetch(`https://api.github.com/repos/${ghRepo}/contents/data.json`, {
-      headers: { Authorization: `token ${ghToken}`, Accept: 'application/vnd.github.v3+json' }
+    const check = await fetch('https://api.github.com/repos/' + ghRepo + '/contents/data.json', {
+      headers: { Authorization: 'token ' + ghToken, Accept: 'application/vnd.github.v3+json' }
     });
-    if (checkRes.ok) {
-      const existing = await checkRes.json();
-      sha = existing.sha;
-    }
-
-    // Push data.json
-    const body = {
-      message: 'Update iLPN data — ' + new Date().toLocaleDateString('en-CA'),
-      content: encoded,
-    };
+    if (check.ok) { const ex = await check.json(); sha = ex.sha; }
+    const body = { message: 'Update iLPN data — ' + new Date().toLocaleDateString('en-CA'), content: encoded };
     if (sha) body.sha = sha;
-
-    const pushRes = await fetch(`https://api.github.com/repos/${ghRepo}/contents/data.json`, {
+    const push = await fetch('https://api.github.com/repos/' + ghRepo + '/contents/data.json', {
       method: 'PUT',
-      headers: {
-        Authorization: `token ${ghToken}`,
-        Accept: 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      },
+      headers: { Authorization: 'token ' + ghToken, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-
-    if (!pushRes.ok) {
-      const err = await pushRes.json();
-      throw new Error(err.message || 'Push failed');
-    }
-
+    if (!push.ok) { const e = await push.json(); throw new Error(e.message); }
     showGHStatus('ok', '✓ Synced — all devices updated in ~30 sec');
-    return true;
-
-  } catch(e) {
-    showGHStatus('err', '✗ ' + e.message);
-    showToast('Sync failed — data loaded locally only');
-    return false;
-  }
+  } catch(e) { showGHStatus('err', '✗ ' + e.message); showToast('Sync failed — data loaded locally'); }
 }
 
-// ─── FILE UPLOAD ──────────────────────────────────────
 function handleFileUpload(event) {
-  const file = event.target.files[0];
-  if (!file) return;
+  const file = event.target.files[0]; if (!file) return;
   const reader = new FileReader();
   reader.onload = async function(e) {
     try {
-      const data = new Uint8Array(e.target.result);
-      const wb = XLSX.read(data, {type:'array'});
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
       const records = [];
       rows.forEach(row => {
         const ilpns = [];
-        const dz = row['ASDROPZONE-iLPN ID'];
-        const rl = row['Receiving Lane-iLPN ID'];
+        const dz = row['ASDROPZONE-iLPN ID'], rl = row['Receiving Lane-iLPN ID'];
         if (dz !== '' && dz !== undefined) ilpns.push(String(Math.round(Number(dz))));
         if (rl !== '' && rl !== undefined) ilpns.push(String(rl));
-        ilpns.forEach(ilpn => {
-          records.push({
-            ilpn,
-            orgId: String(row['ORG ID']||''),
-            locationId: String(row['Location ID']||''),
-            aisle: String(row['Aisle']||''),
-            itemId: String(row['Item ID']||''),
-            locationMin: Number(row['Location Min'])||0,
-            pbOnHand: Number(row['PB On Hand'])||0,
-            dropzoneOnHand: Number(row['ASDROPZONE-On hand'])||0,
-            osOnHand: Number(row['OS On hand'])||0,
-            receivingLaneOnHand: Number(row['Receiving Lane-On hand'])||0,
-            receivingLaneLocation: String(row['Receiving Lane-Location ID']||''),
-            inductionAction: String(row['Induction Action']||''),
-          });
-        });
+        ilpns.forEach(ilpn => records.push({
+          ilpn, orgId:String(row['ORG ID']||''), locationId:String(row['Location ID']||''),
+          aisle:String(row['Aisle']||''), itemId:String(row['Item ID']||''),
+          locationMin:Number(row['Location Min'])||0, pbOnHand:Number(row['PB On Hand'])||0,
+          dropzoneOnHand:Number(row['ASDROPZONE-On hand'])||0, osOnHand:Number(row['OS On hand'])||0,
+          receivingLaneOnHand:Number(row['Receiving Lane-On hand'])||0,
+          receivingLaneLocation:String(row['Receiving Lane-Location ID']||''),
+          inductionAction:String(row['Induction Action']||'')
+        }));
       });
-      if (records.length === 0) { showToast('No iLPN records found in file'); return; }
-      ILPN_DATA = records;
-      buildLookup(ILPN_DATA);
-      dataLoaded = true;
-      lastUploadTime = new Date();
-      lastFileName = file.name;
-      const priority = records.filter(r => r.inductionAction.startsWith('1.')).length;
+      if (!records.length) { showToast('No records found'); return; }
+      ILPN_DATA = records; buildLookup(ILPN_DATA); dataLoaded = true;
+      lastUploadTime = new Date(); lastFileName = file.name;
+      const pri = records.filter(r=>r.inductionAction.startsWith('1.')).length;
       document.getElementById('uploadFileName').textContent = file.name;
       document.getElementById('statTotal').textContent = records.length;
-      document.getElementById('statPriority').textContent = priority;
+      document.getElementById('statPriority').textContent = pri;
       document.getElementById('uploadSuccess').classList.add('show');
-      updateAdminStatus();
-      updateBadge();
+      updateAdminStatus(); updateBadge();
       showToast('✅ ' + records.length + ' iLPNs loaded — syncing…');
       await pushDataToGitHub(records);
-    } catch(err) {
-      showToast('Error reading file — check format');
-      console.error(err);
-    }
+    } catch(err) { showToast('Error reading file'); console.error(err); }
   };
   reader.readAsArrayBuffer(file);
 }
@@ -796,8 +694,7 @@ function updateAdminStatus() {
   document.getElementById('statusCount').textContent = dataLoaded ? ILPN_DATA.length + ' iLPNs' : '—';
   document.getElementById('statusTime').textContent = lastUploadTime ? lastUploadTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—';
   document.getElementById('statusFile').textContent = lastFileName || '—';
-  const dot = document.getElementById('statusData');
-  dot.innerHTML = dataLoaded
+  document.getElementById('statusData').innerHTML = dataLoaded
     ? '<span class="status-dot" style="background:#22C55E"></span>Loaded & ready'
     : '<span class="status-dot" style="background:#94A3B8"></span>No file loaded';
 }
@@ -805,25 +702,19 @@ function updateAdminStatus() {
 const zone = document.getElementById('uploadZone');
 zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
 zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
-zone.addEventListener('drop', e => {
-  e.preventDefault(); zone.classList.remove('drag');
-  const f = e.dataTransfer.files[0];
-  if (f) handleFileUpload({target:{files:[f]}});
-});
+zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag'); const f=e.dataTransfer.files[0]; if(f) handleFileUpload({target:{files:[f]}}); });
 
-// ─── SCANNER ──────────────────────────────────────────
 let codeReader = null, scanning = false;
 
 async function toggleScanner() {
-  if (!dataLoaded) { showToast('Upload today's data first — tap the admin icon'); return; }
+  if (!dataLoaded) { showToast('Admin must upload data first'); return; }
   scanning ? stopScanner() : startScanner();
 }
 
 async function startScanner() {
-  if (!window.ZXing) { showToast('Camera scanner unavailable — use manual input'); return; }
+  if (!window.ZXing) { showToast('Camera unavailable — use manual input'); return; }
   scanning = true;
-  const btn = document.getElementById('scanBtn');
-  btn.classList.add('scanning');
+  document.getElementById('scanBtn').classList.add('scanning');
   document.getElementById('scanLabel').textContent = 'Scanning… tap to stop';
   document.getElementById('scanSub').textContent = 'Camera is active';
   document.getElementById('scanPulse').style.display = 'block';
@@ -832,24 +723,19 @@ async function startScanner() {
   document.getElementById('home-state').style.display = 'none';
   try {
     const hints = new Map();
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[
-      ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39,
-      ZXing.BarcodeFormat.QR_CODE, ZXing.BarcodeFormat.EAN_13,
-      ZXing.BarcodeFormat.DATA_MATRIX, ZXing.BarcodeFormat.ITF,
-      ZXing.BarcodeFormat.CODABAR, ZXing.BarcodeFormat.EAN_8
-    ]);
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.QR_CODE,ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.DATA_MATRIX,ZXing.BarcodeFormat.ITF,ZXing.BarcodeFormat.CODABAR]);
     hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
     codeReader = new ZXing.BrowserMultiFormatReader(hints);
     const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
     let devId = devices[0]?.deviceId;
     const rear = devices.find(d => /back|rear|environment/i.test(d.label));
     if (rear) devId = rear.deviceId;
-    await codeReader.decodeFromVideoDevice(devId, 'video', (res, err) => {
+    await codeReader.decodeFromVideoDevice(devId, 'video', (res) => {
       if (res) { stopScanner(); handleScan(res.getText()); }
     });
   } catch(e) {
     stopScanner();
-    showToast(e.name==='NotAllowedError' ? 'Camera access denied — use manual input' : 'Camera unavailable — use manual input');
+    showToast(e.name==='NotAllowedError' ? 'Camera denied — use manual input' : 'Camera error — use manual input');
   }
 }
 
@@ -868,10 +754,7 @@ function handleScan(raw) {
   if (navigator.vibrate) navigator.vibrate([80]);
   doLookup(raw);
 }
-function manualLookup() {
-  const v = document.getElementById('manualInput').value.trim();
-  if (v) doLookup(v);
-}
+function manualLookup() { const v=document.getElementById('manualInput').value.trim(); if(v) doLookup(v); }
 document.getElementById('manualInput').addEventListener('keydown', e => { if(e.key==='Enter') manualLookup(); });
 
 function doLookup(raw) {
@@ -879,49 +762,30 @@ function doLookup(raw) {
   const resultDiv = document.getElementById('result');
   document.getElementById('home-state').style.display = 'none';
   if (!records) {
-    resultDiv.innerHTML = `
-      <div class="not-found">
-        <div class="not-found-icon">🔍</div>
-        <div class="not-found-title">iLPN Not Found</div>
-        <div class="not-found-msg"><span class="not-found-id">${raw}</span> is not in today's induction list.<br><span style="color:var(--text-3);font-size:12px;display:block;margin-top:6px">Double-check the scan or confirm the iLPN is active.</span></div>
-      </div>
-      <button class="scan-again" onclick="scanAgain()"><svg viewBox="0 0 24 24"><path d="M3 9V6a1 1 0 0 1 1-1h3"/><path d="M21 9V6a1 1 0 0 0-1-1h-3"/><path d="M3 15v3a1 1 0 0 0 1 1h3"/><path d="M21 15v3a1 1 0 0 1-1 1h-3"/><line x1="3" y1="12" x2="21" y2="12" stroke-dasharray="3 3"/></svg>Scan Another</button>`;
+    resultDiv.innerHTML = '<div class="not-found"><div class="not-found-icon">🔍</div><div class="not-found-title">iLPN Not Found</div><div class="not-found-msg"><span class="not-found-id">'+raw+'</span> is not in today's induction list.</div></div><button class="scan-again" onclick="scanAgain()">↩ Scan Another</button>';
     return;
   }
   let h = '<div class="result-wrap">';
   records.forEach(r => {
     const cfg = ACTIONS[r.inductionAction] || ACTIONS["4. Induction from OS"];
-    h += `<div style="margin-bottom:16px">
-      <div class="priority-banner" style="background:${cfg.bg}">
-        <div class="priority-icon">${cfg.icon}</div>
-        <div class="priority-text">
-          <div class="priority-eyebrow">Induction Priority</div>
-          <div class="priority-name">${cfg.label}</div>
-        </div>
-        <div class="priority-ilpn">
-          <div class="priority-ilpn-label">iLPN</div>
-          <div class="priority-ilpn-val">${r.ilpn}</div>
-        </div>
-      </div>
-      <div class="result-body">
-        <div class="dest-card">
-          <div><div class="dest-label">Destination</div><div class="dest-val">${r.locationId}</div></div>
-          <div class="dest-aisle"><div class="dest-aisle-label">Aisle</div><div class="dest-aisle-val">${r.aisle}</div></div>
-        </div>
-        <div class="meta-grid">
-          <div class="meta-cell"><div class="meta-label">Item ID</div><div class="meta-val">${r.itemId}</div></div>
-          <div class="meta-cell"><div class="meta-label">Location Min</div><div class="meta-val">${r.locationMin}</div></div>
-        </div>
-        <div class="inv-title">Inventory Snapshot</div>
-        <div class="inv-row"><span class="inv-name">PB On Hand</span><span class="inv-val ${r.pbOnHand>0?'pos':'zero'}">${r.pbOnHand}</span></div>
-        <div class="inv-row"><span class="inv-name">Drop Zone On Hand</span><span class="inv-val ${r.dropzoneOnHand>0?'pos':'zero'}">${r.dropzoneOnHand}</span></div>
-        <div class="inv-row"><span class="inv-name">OS On Hand</span><span class="inv-val ${r.osOnHand>0?'pos':'zero'}">${r.osOnHand}</span></div>
-        <div class="inv-row"><span class="inv-name">Receiving Lane</span><span class="inv-val ${r.receivingLaneOnHand>0?'pos':'zero'}">${r.receivingLaneOnHand}</span></div>
-        ${r.receivingLaneLocation ? `<div class="rln-chip">📍 Receiving Lane: ${r.receivingLaneLocation}</div>` : ''}
-      </div>
-    </div>`;
+    h += '<div style="margin-bottom:16px">'
+      + '<div class="priority-banner" style="background:'+cfg.bg+'">'
+      + '<div class="priority-icon">'+cfg.icon+'</div>'
+      + '<div class="priority-text"><div class="priority-eyebrow">Induction Priority</div><div class="priority-name">'+cfg.label+'</div></div>'
+      + '<div class="priority-ilpn"><div class="priority-ilpn-label">iLPN</div><div class="priority-ilpn-val">'+r.ilpn+'</div></div>'
+      + '</div>'
+      + '<div class="result-body">'
+      + '<div class="dest-card"><div><div class="dest-label">Destination</div><div class="dest-val">'+r.locationId+'</div></div><div class="dest-aisle"><div class="dest-aisle-label">Aisle</div><div class="dest-aisle-val">'+r.aisle+'</div></div></div>'
+      + '<div class="meta-grid"><div class="meta-cell"><div class="meta-label">Item ID</div><div class="meta-val">'+r.itemId+'</div></div><div class="meta-cell"><div class="meta-label">Location Min</div><div class="meta-val">'+r.locationMin+'</div></div></div>'
+      + '<div class="inv-title">Inventory Snapshot</div>'
+      + '<div class="inv-row"><span class="inv-name">PB On Hand</span><span class="inv-val '+(r.pbOnHand>0?'pos':'zero')+'">'+r.pbOnHand+'</span></div>'
+      + '<div class="inv-row"><span class="inv-name">Drop Zone</span><span class="inv-val '+(r.dropzoneOnHand>0?'pos':'zero')+'">'+r.dropzoneOnHand+'</span></div>'
+      + '<div class="inv-row"><span class="inv-name">OS On Hand</span><span class="inv-val '+(r.osOnHand>0?'pos':'zero')+'">'+r.osOnHand+'</span></div>'
+      + '<div class="inv-row"><span class="inv-name">Receiving Lane</span><span class="inv-val '+(r.receivingLaneOnHand>0?'pos':'zero')+'">'+r.receivingLaneOnHand+'</span></div>'
+      + (r.receivingLaneLocation ? '<div class="rln-chip">📍 Receiving Lane: '+r.receivingLaneLocation+'</div>' : '')
+      + '</div></div>';
   });
-  h += `</div><button class="scan-again" onclick="scanAgain()"><svg viewBox="0 0 24 24"><path d="M3 9V6a1 1 0 0 1 1-1h3"/><path d="M21 9V6a1 1 0 0 0-1-1h-3"/><path d="M3 15v3a1 1 0 0 0 1 1h3"/><path d="M21 15v3a1 1 0 0 1-1 1h-3"/><line x1="3" y1="12" x2="21" y2="12" stroke-dasharray="3 3"/></svg>Scan Another</button>`;
+  h += '</div><button class="scan-again" onclick="scanAgain()">↩ Scan Another</button>';
   resultDiv.innerHTML = h;
   window.scrollTo({top:0,behavior:'smooth'});
 }
@@ -935,15 +799,15 @@ function scanAgain() {
 
 function showToast(msg) {
   const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 3000);
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 3000);
 }
 
-// Init — show no-data state immediately, then load from server
+// ── BOOT ──────────────────────────────────────────────
 updateBadge();
 renderHomeState();
 loadDataFromServer();
+initAdminFields();
 </script>
 </body>
 </html>
