@@ -749,16 +749,52 @@ zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
 zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag'); const f=e.dataTransfer.files[0]; if(f) handleFileUpload({target:{files:[f]}}); });
 
 let codeReader = null, scanning = false;
+let stream = null;
+let scanInterval = null;
+let lastBadScan = '';
+let lastBadScanAt = 0;
 
 async function toggleScanner() {
   if (!dataLoaded) { showToast('Admin must upload data first'); return; }
   scanning ? stopScanner() : startScanner();
 }
 
-let stream = null;
-let scanInterval = null;
-let lastBadScan = '';
-let lastBadScanAt = 0;
+function scannerFailMessage(e) {
+  const name = e && e.name ? e.name : '';
+  const msg = e && e.message ? e.message : '';
+
+  if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    return 'Camera blocked — open with HTTPS/GitHub Pages';
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return 'Camera not supported in this browser';
+  }
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return 'Camera permission denied — allow camera in browser settings';
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return 'No camera found on this device';
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return 'Camera busy — close other apps using camera';
+  }
+  if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
+    return 'Back camera failed — trying basic camera';
+  }
+  if (/library|load|script/i.test(msg)) {
+    return 'Scanner library did not load — check internet/CDN access';
+  }
+  return 'Camera error: ' + (name || msg || 'unknown issue');
+}
+
+function setScannerUI(active, subText) {
+  const wrap = document.getElementById('scanner-wrap');
+  document.getElementById('scanBtn').classList.toggle('scanning', active);
+  document.getElementById('scanLabel').textContent = active ? 'Scanning… tap to stop' : 'Scan iLPN Barcode';
+  document.getElementById('scanSub').textContent = active ? (subText || 'Looking for uploaded iLPN') : 'Point camera at tote label';
+  document.getElementById('scanPulse').style.display = active ? 'block' : 'none';
+  wrap.classList.toggle('active', active);
+}
 
 function acceptScannerValue(raw) {
   const records = findUploadedILPN(raw);
@@ -768,74 +804,69 @@ function acceptScannerValue(raw) {
     return true;
   }
 
-  // Do not crash or stop on a wrong/partial barcode. Keep scanning until an uploaded iLPN is detected.
+  // Do not crash or stop on wrong/partial reads. Keep camera active until an uploaded iLPN is detected.
   const now = Date.now();
-  if (raw && (raw !== lastBadScan || now - lastBadScanAt > 1800)) {
+  if (raw && (raw !== lastBadScan || now - lastBadScanAt > 1600)) {
     lastBadScan = raw;
     lastBadScanAt = now;
-    document.getElementById('scanSub').textContent = 'Read barcode, not in uploaded file — keep aiming';
+    document.getElementById('scanSub').textContent = 'Barcode read, not in uploaded file — keep aiming';
   }
   return false;
 }
 
 async function loadZXing() {
-  if (window.ZXing) return;
+  if (window.ZXing && window.ZXing.BrowserMultiFormatReader) return;
+
   const urls = [
+    'https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js',
     'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js',
-    'https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js'
+    'https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.20.0/index.min.js'
   ];
+
   let lastError = null;
   for (const url of urls) {
     try {
       await new Promise((resolve, reject) => {
+        const existing = [...document.scripts].find(x => x.src === url);
+        if (existing && window.ZXing && window.ZXing.BrowserMultiFormatReader) return resolve();
         const s = document.createElement('script');
         s.src = url;
-        s.onload = resolve;
+        s.async = true;
+        s.onload = () => resolve();
         s.onerror = () => reject(new Error('Scanner library failed to load'));
         document.head.appendChild(s);
       });
-      if (window.ZXing) return;
-    } catch (e) { lastError = e; }
+      if (window.ZXing && window.ZXing.BrowserMultiFormatReader) return;
+    } catch (e) {
+      lastError = e;
+    }
   }
   throw lastError || new Error('Scanner library failed to load');
 }
 
-async function startScanner() {
-  scanning = true;
-  lastBadScan = '';
-  lastBadScanAt = 0;
-  document.getElementById('scanBtn').classList.add('scanning');
-  document.getElementById('scanLabel').textContent = 'Scanning… tap to stop';
-  document.getElementById('scanSub').textContent = 'Looking for uploaded iLPN';
-  document.getElementById('scanPulse').style.display = 'block';
-  document.getElementById('scanner-wrap').classList.add('active');
-  document.getElementById('result').innerHTML = '';
-  document.getElementById('home-state').style.display = 'none';
+async function startNativeScanner(video) {
+  let formats = ['code_128','code_39','code_93','ean_13','ean_8','itf','codabar','qr_code','data_matrix'];
+  if (BarcodeDetector.getSupportedFormats) {
+    const supported = await BarcodeDetector.getSupportedFormats();
+    formats = formats.filter(f => supported.includes(f));
+  }
+  const detector = new BarcodeDetector(formats.length ? { formats } : undefined);
 
-  try {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Camera API unavailable');
+  const constraintsList = [
+    { video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: { facingMode: 'environment' }, audio: false },
+    { video: true, audio: false }
+  ];
 
-    // Request rear camera first.
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: 'environment' },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        focusMode: { ideal: 'continuous' }
-      }
-    });
-    const video = document.getElementById('video');
-    video.srcObject = stream;
-    await video.play();
-
-    // Fast native scanner when the phone supports it.
-    if ('BarcodeDetector' in window) {
-      let formats = ['code_128','code_39','code_93','ean_13','ean_8','itf','codabar','qr_code','data_matrix'];
-      if (BarcodeDetector.getSupportedFormats) {
-        const supported = await BarcodeDetector.getSupportedFormats();
-        formats = formats.filter(f => supported.includes(f));
-      }
-      const detector = new BarcodeDetector(formats.length ? { formats } : undefined);
+  let lastErr = null;
+  for (const constraints of constraintsList) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      video.setAttribute('playsinline', 'true');
+      video.muted = true;
+      await video.play();
       scanInterval = setInterval(async () => {
         if (!scanning) return;
         try {
@@ -843,43 +874,108 @@ async function startScanner() {
           for (const b of barcodes) {
             if (acceptScannerValue(b.rawValue)) return;
           }
-        } catch(e) {}
-      }, 200);
-      return;
+        } catch (_) {}
+      }, 180);
+      return true;
+    } catch (e) {
+      lastErr = e;
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    }
+  }
+  throw lastErr || new Error('Native camera failed');
+}
+
+async function startZXingScanner() {
+  await loadZXing();
+
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+    ZXing.BarcodeFormat.CODE_128,
+    ZXing.BarcodeFormat.CODE_39,
+    ZXing.BarcodeFormat.CODE_93,
+    ZXing.BarcodeFormat.ITF,
+    ZXing.BarcodeFormat.CODABAR,
+    ZXing.BarcodeFormat.EAN_13,
+    ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.QR_CODE,
+    ZXing.BarcodeFormat.DATA_MATRIX
+  ].filter(Boolean));
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+  codeReader = new ZXing.BrowserMultiFormatReader(hints, 200);
+
+  const callback = (res, err) => {
+    if (!scanning || !res) return;
+    acceptScannerValue(res.getText());
+  };
+
+  // First try back camera constraints. If that fails, try default camera.
+  try {
+    if (typeof codeReader.decodeFromConstraints === 'function') {
+      await codeReader.decodeFromConstraints({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      }, 'video', callback);
+      return true;
+    }
+  } catch (e) {
+    console.warn('ZXing constraints failed, trying default device:', e);
+  }
+
+  try {
+    await codeReader.decodeFromVideoDevice(undefined, 'video', callback);
+    return true;
+  } catch (e) {
+    throw e;
+  }
+}
+
+async function startScanner() {
+  if (scanning) return;
+
+  scanning = true;
+  lastBadScan = '';
+  lastBadScanAt = 0;
+  document.getElementById('result').innerHTML = '';
+  document.getElementById('home-state').style.display = 'none';
+  setScannerUI(true, 'Starting camera…');
+
+  try {
+    if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+      throw new Error('Insecure context');
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('getUserMedia unavailable');
     }
 
-    // Fallback scanner for phones/browsers without BarcodeDetector.
-    await loadZXing();
-    const hints = new Map();
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-      ZXing.BarcodeFormat.CODE_128,
-      ZXing.BarcodeFormat.CODE_39,
-      ZXing.BarcodeFormat.CODE_93,
-      ZXing.BarcodeFormat.ITF,
-      ZXing.BarcodeFormat.CODABAR,
-      ZXing.BarcodeFormat.QR_CODE,
-      ZXing.BarcodeFormat.DATA_MATRIX,
-      ZXing.BarcodeFormat.EAN_13,
-      ZXing.BarcodeFormat.EAN_8
-    ].filter(Boolean));
-    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-    codeReader = new ZXing.BrowserMultiFormatReader(hints, 250);
+    const video = document.getElementById('video');
 
-    const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
-    const rear = devices.find(d => /back|rear|environment/i.test(d.label));
-    const devId = rear?.deviceId || devices[0]?.deviceId;
+    // Native detector is fastest on phones that support it. If it fails, do not give up; try ZXing.
+    if ('BarcodeDetector' in window) {
+      try {
+        setScannerUI(true, 'Using phone camera scanner…');
+        await startNativeScanner(video);
+        return;
+      } catch (nativeErr) {
+        console.warn('Native BarcodeDetector failed, trying ZXing:', nativeErr);
+        if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+        if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+        video.srcObject = null;
+      }
+    }
 
-    // Stop the first stream so ZXing can control the selected camera cleanly.
-    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-
-    await codeReader.decodeFromVideoDevice(devId, 'video', (res, err) => {
-      if (!scanning || !res) return;
-      acceptScannerValue(res.getText());
-    });
+    setScannerUI(true, 'Loading backup scanner…');
+    await startZXingScanner();
+    setScannerUI(true, 'Looking for uploaded iLPN');
   } catch(e) {
     console.error('Scanner error:', e);
+    const message = scannerFailMessage(e);
     stopScanner();
-    showToast(e.name === 'NotAllowedError' ? 'Camera denied — use manual input' : 'Camera error — use manual input');
+    showToast(message);
+    document.getElementById('result').innerHTML =
+      '<div class="not-found"><div class="not-found-icon">📷</div>' +
+      '<div class="not-found-title">Camera Scanner Could Not Start</div>' +
+      '<div class="not-found-msg">' + message + '<br><br>For phone scanning, open the site from your GitHub Pages HTTPS link, then allow camera permission.</div></div>';
   }
 }
 
@@ -889,16 +985,13 @@ function stopScanner() {
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
   if (codeReader) {
     try { if (typeof codeReader.reset === 'function') codeReader.reset(); } catch(e) {}
+    try { if (typeof codeReader.stopContinuousDecode === 'function') codeReader.stopContinuousDecode(); } catch(e) {}
     codeReader = null;
   }
   const video = document.getElementById('video');
   try { video.pause(); } catch(e) {}
   video.srcObject = null;
-  document.getElementById('scanBtn').classList.remove('scanning');
-  document.getElementById('scanLabel').textContent = 'Scan iLPN Barcode';
-  document.getElementById('scanSub').textContent = 'Point camera at tote label';
-  document.getElementById('scanPulse').style.display = 'none';
-  document.getElementById('scanner-wrap').classList.remove('active');
+  setScannerUI(false);
 }
 
 function handleScan(raw) {
