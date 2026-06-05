@@ -1,0 +1,100 @@
+name: Sync Induction Data
+
+on:
+  schedule:
+    - cron: '0 12 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install office365-REST-Python-Client requests
+
+      - name: Download CSV from SharePoint
+        env:
+          SP_USERNAME: ${{ secrets.SP_USERNAME }}
+          SP_PASSWORD: ${{ secrets.SP_PASSWORD }}
+          SP_SITE_URL: ${{ secrets.SP_SITE_URL }}
+          SP_FOLDER: ${{ secrets.SP_FOLDER }}
+          SP_FILENAME: ${{ secrets.SP_FILENAME }}
+        run: |
+          python3 << 'EOF'
+          import os
+          from office365.runtime.auth.user_credential import UserCredential
+          from office365.sharepoint.client_context import ClientContext
+
+          site_url = os.environ['SP_SITE_URL']
+          username = os.environ['SP_USERNAME']
+          password = os.environ['SP_PASSWORD']
+          folder   = os.environ['SP_FOLDER']
+          filename = os.environ['SP_FILENAME']
+
+          ctx = ClientContext(site_url).with_credentials(UserCredential(username, password))
+          site_name = site_url.split('/sites/')[1]
+          file_url = f"/sites/{site_name}/{folder}/{filename}"
+
+          with open('latest.csv', 'wb') as f:
+              ctx.web.get_file_by_server_relative_url(file_url).download(f).execute_query()
+
+          print("Downloaded:", filename)
+          EOF
+
+      - name: Convert CSV to data.json
+        run: |
+          python3 << 'EOF'
+          import csv, json
+
+          records = []
+          with open('latest.csv', 'r', encoding='utf-8-sig') as f:
+              sample = f.read(2048)
+              f.seek(0)
+              delimiter = '\t' if sample.count('\t') > sample.count(',') else ','
+              reader = csv.DictReader(f, delimiter=delimiter)
+              for row in reader:
+                  ilpns = []
+                  dz = row.get('ASDROPZONE-iLPN ID', '').strip()
+                  rl = row.get('Receiving Lane-iLPN ID', '').strip()
+                  if dz and dz != '0':
+                      try: ilpns.append(str(int(float(dz))))
+                      except: pass
+                  if rl and rl != '0':
+                      ilpns.append(rl)
+                  for ilpn in ilpns:
+                      records.append({
+                          'ilpn': ilpn.strip(),
+                          'orgId': row.get('ORG ID', '').strip(),
+                          'locationId': row.get('Location ID', '').strip(),
+                          'aisle': row.get('Aisle', '').strip(),
+                          'itemId': row.get('Item ID', '').strip(),
+                          'locationMin': int(row.get('Location Min') or 0),
+                          'pbOnHand': int(row.get('PB On Hand') or 0),
+                          'dropzoneOnHand': int(row.get('ASDROPZONE-On hand') or 0),
+                          'osOnHand': int(row.get('OS On hand') or 0),
+                          'receivingLaneOnHand': int(row.get('Receiving Lane-On hand') or 0),
+                          'receivingLaneLocation': row.get('Receiving Lane-Location ID', '').strip(),
+                          'inductionAction': row.get('Induction Action', '').strip(),
+                      })
+
+          with open('data.json', 'w') as f:
+              json.dump(records, f)
+
+          print(f"Converted {len(records)} iLPN records to data.json")
+          EOF
+
+      - name: Commit and push data.json
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add data.json
+          git diff --staged --quiet || git commit -m "Auto-update iLPN data $(date +'%Y-%m-%d')"
+          git push
