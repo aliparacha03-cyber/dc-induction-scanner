@@ -416,13 +416,13 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
       <div class="admin-section-title">Upload Today's Data</div>
 
       <div class="upload-zone" id="uploadZone">
-        <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="handleFileUpload(event)">
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" onchange="handleFileUpload(event)">
         <div class="upload-icon">
           <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         </div>
         <div class="upload-title">Upload Excel File</div>
         <div class="upload-sub">Tap to choose or drag and drop your<br>AS Priority Induction Report</div>
-        <div class="upload-ext">.xlsx / .xls</div>
+        <div class="upload-ext">.xlsx / .xls / .csv</div>
       </div>
 
       <div class="upload-success" id="uploadSuccess">
@@ -525,58 +525,13 @@ const ACTIONS = {
 };
 
 let LOOKUP = {};
-
-// Keep the existing daily Excel upload logic, but make matching safer for camera scans.
-// The scanner must only accept a barcode when it matches an iLPN from the uploaded file.
-function cleanILPN(value) {
-  return String(value ?? '')
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
-    .trim();
-}
-
-function ilpnKeys(value) {
-  const raw = cleanILPN(value);
-  const compact = raw.replace(/\s+/g, '');
-  const digits = raw.replace(/\D/g, '');
-  const keys = new Set();
-
-  if (raw) keys.add(raw.toLowerCase());
-  if (compact) keys.add(compact.toLowerCase());
-  if (digits) {
-    keys.add(digits.toLowerCase());
-    keys.add(digits.replace(/^0+/, '').toLowerCase());
-  }
-
-  // If a scanner reads text around the barcode, keep only useful number chunks too.
-  raw.split(/[\s|,;:/#-]+/).forEach(part => {
-    const d = part.replace(/\D/g, '');
-    if (part.length >= 4) keys.add(part.toLowerCase());
-    if (d.length >= 6) {
-      keys.add(d.toLowerCase());
-      keys.add(d.replace(/^0+/, '').toLowerCase());
-    }
-  });
-
-  return [...keys].filter(Boolean);
-}
-
-function addLookupKey(key, record) {
-  const k = String(key || '').trim().toLowerCase();
-  if (!k) return;
-  if (!LOOKUP[k]) LOOKUP[k] = [];
-  if (!LOOKUP[k].includes(record)) LOOKUP[k].push(record);
-}
-
 function buildLookup(data) {
   LOOKUP = {};
-  data.forEach(r => ilpnKeys(r.ilpn).forEach(k => addLookupKey(k, r)));
-}
-
-function findUploadedILPN(raw) {
-  for (const key of ilpnKeys(raw)) {
-    if (LOOKUP[key]) return LOOKUP[key];
-  }
-  return null;
+  data.forEach(r => {
+    const k = r.ilpn.trim().toLowerCase();
+    if (!LOOKUP[k]) LOOKUP[k] = [];
+    LOOKUP[k].push(r);
+  });
 }
 
 function updateBadge() {
@@ -695,30 +650,87 @@ async function pushDataToGitHub(records) {
   } catch(e) { showGHStatus('err', '✗ ' + e.message); showToast('Sync failed — data loaded locally'); }
 }
 
+function parseRows(rows) {
+  const records = [];
+  rows.forEach(row => {
+    const ilpns = [];
+    const dz = row['ASDROPZONE-iLPN ID'], rl = row['Receiving Lane-iLPN ID'];
+    if (dz !== '' && dz !== undefined && dz !== null) ilpns.push(String(Math.round(Number(dz))));
+    if (rl !== '' && rl !== undefined && rl !== null) ilpns.push(String(rl).trim());
+    ilpns.forEach(ilpn => {
+      if (!ilpn || ilpn === '0' || ilpn === 'NaN') return;
+      records.push({
+        ilpn: ilpn.trim(),
+        orgId: String(row['ORG ID']||''),
+        locationId: String(row['Location ID']||''),
+        aisle: String(row['Aisle']||''),
+        itemId: String(row['Item ID']||''),
+        locationMin: Number(row['Location Min'])||0,
+        pbOnHand: Number(row['PB On Hand'])||0,
+        dropzoneOnHand: Number(row['ASDROPZONE-On hand'])||0,
+        osOnHand: Number(row['OS On hand'])||0,
+        receivingLaneOnHand: Number(row['Receiving Lane-On hand'])||0,
+        receivingLaneLocation: String(row['Receiving Lane-Location ID']||''),
+        inductionAction: String(row['Induction Action']||'')
+      });
+    });
+  });
+  return records;
+}
+
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+
+  // Auto-detect delimiter — tab or comma
+  const firstLine = lines[0];
+  const delimiter = (firstLine.split('\t').length > firstLine.split(',').length) ? '\t' : ',';
+
+  function splitLine(line) {
+    if (delimiter === '\t') return line.split('\t').map(v => v.trim());
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '"') { inQuotes = !inQuotes; }
+      else if (line[i] === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+      else { current += line[i]; }
+    }
+    result.push(current.trim());
+    return result;
+  }
+
+  const headers = splitLine(lines[0]);
+  return lines.slice(1).map(line => {
+    const vals = splitLine(line);
+    const obj = {};
+    headers.forEach((h, i) => { obj[h.trim()] = vals[i] !== undefined ? vals[i].trim() : ''; });
+    return obj;
+  });
+}
+
+
 function handleFileUpload(event) {
   const file = event.target.files[0]; if (!file) return;
+  const isCSV = file.name.toLowerCase().endsWith('.csv');
   const reader = new FileReader();
+
   reader.onload = async function(e) {
     try {
-      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
-      const records = [];
-      rows.forEach(row => {
-        const ilpns = [];
-        const dz = row['ASDROPZONE-iLPN ID'], rl = row['Receiving Lane-iLPN ID'];
-        if (dz !== '' && dz !== undefined) ilpns.push(String(Math.round(Number(dz))));
-        if (rl !== '' && rl !== undefined) ilpns.push(String(rl));
-        ilpns.forEach(ilpn => records.push({
-          ilpn, orgId:String(row['ORG ID']||''), locationId:String(row['Location ID']||''),
-          aisle:String(row['Aisle']||''), itemId:String(row['Item ID']||''),
-          locationMin:Number(row['Location Min'])||0, pbOnHand:Number(row['PB On Hand'])||0,
-          dropzoneOnHand:Number(row['ASDROPZONE-On hand'])||0, osOnHand:Number(row['OS On hand'])||0,
-          receivingLaneOnHand:Number(row['Receiving Lane-On hand'])||0,
-          receivingLaneLocation:String(row['Receiving Lane-Location ID']||''),
-          inductionAction:String(row['Induction Action']||'')
-        }));
-      });
-      if (!records.length) { showToast('No records found'); return; }
+      let rows = [];
+      if (isCSV) {
+        // Parse CSV directly
+        const text = e.target.result;
+        rows = parseCSV(text);
+      } else {
+        // Parse XLSX
+        const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
+      }
+
+      const records = parseRows(rows);
+      if (!records.length) { showToast('No records found — check column names'); return; }
+
       ILPN_DATA = records; buildLookup(ILPN_DATA); dataLoaded = true;
       lastUploadTime = new Date(); lastFileName = file.name;
       const pri = records.filter(r=>r.inductionAction.startsWith('1.')).length;
@@ -729,9 +741,14 @@ function handleFileUpload(event) {
       updateAdminStatus(); updateBadge();
       showToast('✅ ' + records.length + ' iLPNs loaded — syncing…');
       await pushDataToGitHub(records);
-    } catch(err) { showToast('Error reading file'); console.error(err); }
+    } catch(err) { showToast('Error reading file — check format'); console.error(err); }
   };
-  reader.readAsArrayBuffer(file);
+
+  if (isCSV) {
+    reader.readAsText(file);
+  } else {
+    reader.readAsArrayBuffer(file);
+  }
 }
 
 function updateAdminStatus() {
@@ -749,321 +766,106 @@ zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
 zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag'); const f=e.dataTransfer.files[0]; if(f) handleFileUpload({target:{files:[f]}}); });
 
 let codeReader = null, scanning = false;
-let stream = null;
-let scanInterval = null;
-let ocrInterval = null;
-let ocrBusy = false;
-let ocrReady = false;
-let lastSeenValue = '';
-let lastSeenAt = 0;
-let lastToastAt = 0;
 
 async function toggleScanner() {
   if (!dataLoaded) { showToast('Admin must upload data first'); return; }
   scanning ? stopScanner() : startScanner();
 }
 
-function scannerFailMessage(e) {
-  const name = e && e.name ? e.name : '';
-  const msg = e && e.message ? e.message : '';
-  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') return 'Camera permission denied. Allow camera access in your browser settings.';
-  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') return 'No camera found on this device.';
-  if (name === 'NotReadableError' || name === 'TrackStartError') return 'Camera is busy. Close other apps/tabs using the camera and try again.';
-  if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') return 'Back camera setting failed. Try again or use another phone browser.';
-  if (msg === 'Insecure context') return 'Camera needs HTTPS. Open the Vercel HTTPS link, not a local file.';
-  if (msg === 'getUserMedia unavailable') return 'This browser does not support camera scanning. Try Chrome or Safari on your phone.';
-  if (/library failed/i.test(msg)) return 'Scanner library failed to load. Check internet connection and refresh.';
-  return 'Camera scanner could not start: ' + (msg || name || 'unknown error');
-}
-
-function setScannerUI(active, subText) {
-  document.getElementById('scanBtn').classList.toggle('scanning', active);
-  document.getElementById('scanLabel').textContent = active ? 'Scanning… tap to stop' : 'Scan iLPN Barcode';
-  document.getElementById('scanSub').textContent = subText || (active ? 'Looking for barcode or printed iLPN' : 'Point camera at tote label');
-  document.getElementById('scanPulse').style.display = active ? 'block' : 'none';
-  document.getElementById('scanner-wrap').classList.toggle('active', active);
-}
-
-function showScanFeedback(message, force=false) {
-  const now = Date.now();
-  document.getElementById('scanSub').textContent = message;
-  if (force || now - lastToastAt > 1800) {
-    lastToastAt = now;
-    showToast(message);
-  }
-}
-
-function acceptScannerValue(raw, source='Scanner') {
-  const clean = cleanILPN(raw);
-  if (!clean) return false;
-
-  const records = findUploadedILPN(clean);
-  if (records) {
-    stopScanner();
-    document.getElementById('manualInput').value = clean;
-    if (navigator.vibrate) navigator.vibrate([60, 40, 100]);
-    showToast('✅ ' + source + ' matched iLPN ' + clean);
-    doLookup(clean);
-    return true;
-  }
-
-  // This is important: when it reads something but it is not in the uploaded file,
-  // show the worker a clear message instead of silently doing nothing.
-  const now = Date.now();
-  if (clean !== lastSeenValue || now - lastSeenAt > 1800) {
-    lastSeenValue = clean;
-    lastSeenAt = now;
-    showScanFeedback(source + ' read ' + clean + ' — not in uploaded file');
-  }
-  return false;
-}
-
-async function loadZXing() {
-  if (window.ZXing && window.ZXing.BrowserMultiFormatReader) return;
-
-  const urls = [
-    'https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js',
-    'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js'
-  ];
-
-  let lastError = null;
-  for (const url of urls) {
-    try {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = url;
-        s.async = true;
-        s.onload = resolve;
-        s.onerror = () => reject(new Error('Scanner library failed to load'));
-        document.head.appendChild(s);
-      });
-      if (window.ZXing && window.ZXing.BrowserMultiFormatReader) return;
-    } catch (e) { lastError = e; }
-  }
-  throw lastError || new Error('Scanner library failed to load');
-}
-
-async function loadOCR() {
-  if (window.Tesseract) { ocrReady = true; return; }
-  await new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-    s.async = true;
-    s.onload = resolve;
-    s.onerror = () => reject(new Error('OCR library failed to load'));
-    document.head.appendChild(s);
-  });
-  ocrReady = !!window.Tesseract;
-}
-
-function extractNumberCandidates(text) {
-  const raw = String(text || '');
-  const cleaned = raw
-    .replace(/[Oo]/g, '0')
-    .replace(/[Il|]/g, '1')
-    .replace(/[Ss]/g, '5')
-    .replace(/[Zz]/g, '2');
-  const candidates = new Set();
-  const groups = cleaned.match(/\d{4,}/g) || [];
-  groups.forEach(g => {
-    candidates.add(g);
-    candidates.add(g.replace(/^0+/, ''));
-  });
-  return [...candidates].filter(Boolean);
-}
-
-function startOCRLoop(video) {
-  if (ocrInterval) clearInterval(ocrInterval);
-
-  // OCR is a fallback for plain printed iLPN numbers. Barcode is still the primary method.
-  loadOCR().then(() => {
-    if (!scanning || !ocrReady) return;
-    showScanFeedback('Scanner ready — barcode + OCR active', true);
-
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-
-    ocrInterval = setInterval(async () => {
-      if (!scanning || ocrBusy || !video.videoWidth || !video.videoHeight) return;
-      ocrBusy = true;
-      try {
-        // Crop the middle of the camera view where the worker aims the label.
-        const vw = video.videoWidth, vh = video.videoHeight;
-        const sw = Math.floor(vw * 0.88);
-        const sh = Math.floor(vh * 0.38);
-        const sx = Math.floor((vw - sw) / 2);
-        const sy = Math.floor((vh - sh) / 2);
-        canvas.width = 900;
-        canvas.height = 360;
-        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-
-        const result = await Tesseract.recognize(canvas, 'eng', {
-          logger: () => {}
-        });
-        const candidates = extractNumberCandidates(result?.data?.text || '');
-        for (const c of candidates) {
-          if (acceptScannerValue(c, 'OCR')) return;
-        }
-        if (candidates.length) {
-          showScanFeedback('OCR saw ' + candidates[0] + ' — not in uploaded file');
-        }
-      } catch (e) {
-        console.warn('OCR read failed:', e);
-      } finally {
-        ocrBusy = false;
-      }
-    }, 1400);
-  }).catch(e => {
-    console.warn('OCR unavailable:', e);
-    showScanFeedback('Barcode scanner active — OCR unavailable');
-  });
-}
-
-async function startNativeScanner(video) {
-  let formats = ['code_128','code_39','code_93','ean_13','ean_8','itf','codabar','qr_code','data_matrix'];
-  if (BarcodeDetector.getSupportedFormats) {
-    const supported = await BarcodeDetector.getSupportedFormats();
-    formats = formats.filter(f => supported.includes(f));
-  }
-  const detector = new BarcodeDetector(formats.length ? { formats } : undefined);
-
-  const constraintsList = [
-    { video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
-    { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
-    { video: { facingMode: 'environment' }, audio: false },
-    { video: true, audio: false }
-  ];
-
-  let lastErr = null;
-  for (const constraints of constraintsList) {
-    try {
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
-      video.srcObject = stream;
-      video.setAttribute('playsinline', 'true');
-      video.muted = true;
-      await video.play();
-      startOCRLoop(video);
-      scanInterval = setInterval(async () => {
-        if (!scanning) return;
-        try {
-          const barcodes = await detector.detect(video);
-          if (!barcodes.length) return;
-          for (const b of barcodes) {
-            if (acceptScannerValue(b.rawValue, 'Barcode')) return;
-          }
-        } catch (_) {}
-      }, 180);
-      return true;
-    } catch (e) {
-      lastErr = e;
-      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-    }
-  }
-  throw lastErr || new Error('Native camera failed');
-}
-
-async function startZXingScanner(video) {
-  await loadZXing();
-
-  const hints = new Map();
-  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-    ZXing.BarcodeFormat.CODE_128,
-    ZXing.BarcodeFormat.CODE_39,
-    ZXing.BarcodeFormat.CODE_93,
-    ZXing.BarcodeFormat.ITF,
-    ZXing.BarcodeFormat.CODABAR,
-    ZXing.BarcodeFormat.EAN_13,
-    ZXing.BarcodeFormat.EAN_8,
-    ZXing.BarcodeFormat.QR_CODE,
-    ZXing.BarcodeFormat.DATA_MATRIX
-  ].filter(Boolean));
-  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-
-  codeReader = new ZXing.BrowserMultiFormatReader(hints, 200);
-  const callback = (res, err) => {
-    if (!scanning || !res) return;
-    acceptScannerValue(res.getText(), 'Barcode');
-  };
-
-  if (typeof codeReader.decodeFromConstraints === 'function') {
-    await codeReader.decodeFromConstraints({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false
-    }, 'video', callback);
-    setTimeout(() => startOCRLoop(video), 700);
-    return true;
-  }
-
-  await codeReader.decodeFromVideoDevice(undefined, 'video', callback);
-  setTimeout(() => startOCRLoop(video), 700);
-  return true;
-}
+let stream = null;
+let scanInterval = null;
 
 async function startScanner() {
-  if (scanning) return;
-
   scanning = true;
-  lastSeenValue = '';
-  lastSeenAt = 0;
-  lastToastAt = 0;
+  document.getElementById('scanBtn').classList.add('scanning');
+  document.getElementById('scanLabel').textContent = 'Scanning… tap to stop';
+  document.getElementById('scanSub').textContent = 'Camera is active';
+  document.getElementById('scanPulse').style.display = 'block';
+  document.getElementById('scanner-wrap').classList.add('active');
   document.getElementById('result').innerHTML = '';
   document.getElementById('home-state').style.display = 'none';
-  setScannerUI(true, 'Starting camera…');
 
   try {
-    if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-      throw new Error('Insecure context');
-    }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error('getUserMedia unavailable');
-    }
-
+    // Request rear camera
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
     const video = document.getElementById('video');
+    video.srcObject = stream;
+    video.setAttribute('playsinline', true);
+    await video.play();
 
+    // Wait for video to actually have frames
+    await new Promise(resolve => {
+      if (video.readyState >= 2) { resolve(); return; }
+      video.addEventListener('canplay', resolve, { once: true });
+    });
+
+    // Use native BarcodeDetector if available (Chrome Android, Safari iOS 17+)
     if ('BarcodeDetector' in window) {
-      try {
-        setScannerUI(true, 'Starting barcode scanner + OCR…');
-        await startNativeScanner(video);
-        return;
-      } catch (nativeErr) {
-        console.warn('Native BarcodeDetector failed, trying ZXing:', nativeErr);
-        if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
-        if (ocrInterval) { clearInterval(ocrInterval); ocrInterval = null; }
-        if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-        video.srcObject = null;
+      const detector = new BarcodeDetector({
+        formats: ['code_128','code_39','ean_13','ean_8','qr_code','data_matrix','itf','codabar']
+      });
+      let detecting = false;
+      scanInterval = setInterval(async () => {
+        if (!scanning || detecting || video.readyState < 2 || video.videoWidth === 0) return;
+        detecting = true;
+        try {
+          const barcodes = await detector.detect(video);
+          if (barcodes.length > 0 && scanning) {
+            const raw = barcodes[0].rawValue;
+            stopScanner();
+            handleScan(raw);
+          }
+        } catch(e) {
+          // ignore frame errors
+        } finally {
+          detecting = false;
+        }
+      }, 400);
+    } else {
+      // Fallback: load ZXing dynamically
+      if (!window.ZXing) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.19.1/zxing.min.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
       }
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.QR_CODE,ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.DATA_MATRIX,ZXing.BarcodeFormat.ITF,ZXing.BarcodeFormat.CODABAR]);
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      codeReader = new ZXing.BrowserMultiFormatReader(hints);
+      const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+      let devId = devices[0]?.deviceId;
+      const rear = devices.find(d => /back|rear|environment/i.test(d.label));
+      if (rear) devId = rear.deviceId;
+      // Stop our stream first, let ZXing manage it
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      await codeReader.decodeFromVideoDevice(devId, 'video', (res) => {
+        if (res) { stopScanner(); handleScan(res.getText()); }
+      });
     }
-
-    setScannerUI(true, 'Loading backup barcode scanner + OCR…');
-    await startZXingScanner(video);
-    setScannerUI(true, 'Looking for barcode or printed iLPN');
   } catch(e) {
-    console.error('Scanner error:', e);
-    const message = scannerFailMessage(e);
     stopScanner();
-    showToast(message);
-    document.getElementById('result').innerHTML =
-      '<div class="not-found"><div class="not-found-icon">📷</div>' +
-      '<div class="not-found-title">Camera Scanner Could Not Start</div>' +
-      '<div class="not-found-msg">' + message + '<br><br>Open the Vercel HTTPS link on the phone and allow camera permission.</div></div>';
+    showToast(e.name === 'NotAllowedError' ? 'Camera denied — use manual input' : 'Camera error — use manual input');
   }
 }
 
 function stopScanner() {
   scanning = false;
   if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
-  if (ocrInterval) { clearInterval(ocrInterval); ocrInterval = null; }
-  ocrBusy = false;
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-  if (codeReader) {
-    try { if (typeof codeReader.reset === 'function') codeReader.reset(); } catch(e) {}
-    try { if (typeof codeReader.stopContinuousDecode === 'function') codeReader.stopContinuousDecode(); } catch(e) {}
-    codeReader = null;
-  }
+  if (codeReader) { codeReader.reset(); codeReader = null; }
   const video = document.getElementById('video');
-  try { video.pause(); } catch(e) {}
   video.srcObject = null;
-  setScannerUI(false);
+  document.getElementById('scanBtn').classList.remove('scanning');
+  document.getElementById('scanLabel').textContent = 'Scan iLPN Barcode';
+  document.getElementById('scanSub').textContent = 'Point camera at tote label';
+  document.getElementById('scanPulse').style.display = 'none';
+  document.getElementById('scanner-wrap').classList.remove('active');
 }
 
 function handleScan(raw) {
@@ -1075,7 +877,7 @@ function manualLookup() { const v=document.getElementById('manualInput').value.t
 document.getElementById('manualInput').addEventListener('keydown', e => { if(e.key==='Enter') manualLookup(); });
 
 function doLookup(raw) {
-  const records = findUploadedILPN(raw);
+  const records = LOOKUP[raw.trim().toLowerCase()];
   const resultDiv = document.getElementById('result');
   document.getElementById('home-state').style.display = 'none';
   if (!records) {
