@@ -1,0 +1,38 @@
+name: Process Induction Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_url:
+        description: 'SharePoint direct download URL for the xlsx'
+        required: true
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install openpyxl requests
+
+      - name: Download and parse xlsx
+        env:
+          FILE_URL: ${{ github.event.inputs.file_url }}
+          SP_TOKEN: ${{ secrets.SHAREPOINT_TOKEN }}
+        run: python process_report.py
+
+      - name: Commit data.json
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git add data.json
+          git diff --staged --quiet || git commit -m "Auto-update data.json $(date -u +'%Y-%m-%d')"
+          git push
